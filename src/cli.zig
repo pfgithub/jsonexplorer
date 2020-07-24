@@ -162,7 +162,7 @@ const Event = union(enum) {
             .key => |k| {
                 try writer.writeAll("[");
                 if (k.modifiers.ctrl) try writer.writeAll("+ctrl");
-                if (k.modifiers.ctrl) try writer.writeAll("+shift");
+                if (k.modifiers.shift) try writer.writeAll("+shift");
                 try writer.writeAll("+");
                 switch (k.keycode) {
                     .character => |char| {
@@ -193,6 +193,7 @@ pub fn nextEvent() ?Event {
     switch (firstByte) {
         3 => return Event.fromc("ctrl+c"),
         4 => return Event.fromc("ctrl+d"),
+        26 => return Event.fromc("ctrl+z"),
         '\x1b' => {
             switch (stdin.readByte() catch return null) {
                 '[' => {
