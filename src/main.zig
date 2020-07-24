@@ -13,8 +13,21 @@ pub fn main() !void {
         return;
     }
 
+    std.debug.warn("\r\x1b[KReading File...", .{});
+
     const jsonTxt = try stdinf.reader().readAllAlloc(alloc, 1000 * 1000);
     defer alloc.free(jsonTxt);
+
+    std.debug.warn("\r\x1b[KParsing JSON...", .{});
+
+    var jsonParser = std.json.Parser.init(alloc, false); // copy_strings = false;
+    defer jsonParser.deinit();
+    var jsonRes = try jsonParser.parse(jsonTxt);
+    defer jsonRes.deinit();
+
+    var jsonRoot = &jsonRes.root;
+
+    std.debug.warn("\r\x1b[K", .{});
 
     var stdin2file = try std.fs.openFileAbsolute("/dev/tty", .{ .read = true });
     defer stdin2file.close();
@@ -26,7 +39,10 @@ pub fn main() !void {
     cli.enterFullscreen() catch {};
     defer cli.exitFullscreen() catch {};
 
-    std.debug.warn("JSON Txt: {}\n", .{jsonTxt});
+    switch (jsonRoot.*) {
+        .Object => std.debug.warn("JSON is object\n", .{}),
+        else => std.debug.warn("JSON is other\n", .{}),
+    }
 
     while (cli.nextEvent(stdin2file)) |ev| {
         if (ev.is("ctrl+c")) break;
