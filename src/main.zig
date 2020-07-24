@@ -3,6 +3,45 @@ const TermGUI = @import("TermGUI.zig");
 
 const cli = @import("cli.zig");
 
+fn renderJsonNode(key: []const u8, value: *const std.json.Value, indent: u32) void {
+    const collapsible = switch (value.*) {
+        .Object => true,
+        .Array => true,
+        .Float => false,
+        .String => false,
+        .Integer => false,
+        .Bool => false,
+        .Null => false,
+    };
+    var i: u32 = 0;
+    while (i < indent) : (i += 1) {
+        std.debug.warn("│", .{}); // ╵ todo
+    }
+    std.debug.warn("{} {}", .{ if (collapsible) @as([]const u8, "-") else "▾", key });
+    switch (value.*) {
+        .Object => |obj| {
+            std.debug.warn("\n", .{});
+            var iter = obj.iterator();
+            while (iter.next()) |kv| {
+                renderJsonNode(kv.key, &kv.value, indent + 1);
+            }
+        },
+        .Array => |arr| {
+            std.debug.warn("\n", .{});
+            for (arr.items) |itm| {
+                renderJsonNode("0:", &itm, indent + 1);
+            }
+        },
+        .String => |str| {
+            std.debug.warn(" \"{}\"\n", .{str});
+        },
+        .Float => |f| std.debug.warn(" {d}\n", .{f}),
+        .Integer => |f| std.debug.warn(" {d}\n", .{f}),
+        .Bool => |f| std.debug.warn(" {}\n", .{f}),
+        .Null => std.debug.warn(" null\n", .{}),
+    }
+}
+
 pub fn main() !void {
     const alloc = std.heap.page_allocator;
 
@@ -39,10 +78,7 @@ pub fn main() !void {
     cli.enterFullscreen() catch {};
     defer cli.exitFullscreen() catch {};
 
-    switch (jsonRoot.*) {
-        .Object => std.debug.warn("JSON is object\n", .{}),
-        else => std.debug.warn("JSON is other\n", .{}),
-    }
+    renderJsonNode(".", jsonRoot, 0);
 
     while (cli.nextEvent(stdin2file)) |ev| {
         if (ev.is("ctrl+c")) break;
@@ -66,11 +102,11 @@ pub fn main() !void {
     //
     // / Filter...
     // ▾ "abi"
-    //   / filter (appears at the top of each list. left arrow to go to parent and filter it eg.)
-    //   - "none"
-    //   - "gnu"
-    //   - "gnuabin32"
-    //   ...
+    // │ / filter (appears at the top of each list. left arrow to go to parent and filter it eg.)
+    // │ - 0: "none"
+    // │ - 1: "gnu"
+    // │ - 2: "gnuabin32"
+    // ╵ - 3: "gnuabin64"
     // ▸ "arch"
     // ▸ "cpuFeatures"
     // ▸ "cpus"
