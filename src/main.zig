@@ -6,9 +6,14 @@ const cli = @import("cli.zig");
 pub fn main() !void {
     const alloc = std.heap.page_allocator;
 
-    const stdin = std.io.getStdIn().reader();
+    const stdinf = std.io.getStdIn();
 
-    const jsonTxt = try stdin.readAllAlloc(alloc, 1000 * 1000);
+    if (std.os.isatty(stdinf.handle)) {
+        std.debug.warn("Usage: echo '{{}}' | jsonexplorer\n", .{});
+        return;
+    }
+
+    const jsonTxt = try stdinf.reader().readAllAlloc(alloc, 1000 * 1000);
     defer alloc.free(jsonTxt);
 
     var stdin2file = try std.fs.openFileAbsolute("/dev/tty", .{ .read = true });
