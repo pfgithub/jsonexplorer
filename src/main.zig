@@ -4,15 +4,28 @@ const TermGUI = @import("TermGUI.zig");
 const cli = @import("cli.zig");
 
 pub fn main() !void {
-    const rawMode = try cli.enterRawMode();
-    defer cli.exitRawMode(rawMode) catch {};
+    const alloc = std.heap.page_allocator;
+
+    const stdin = std.io.getStdIn().reader();
+
+    const jsonTxt = try stdin.readAllAlloc(alloc, 1000 * 1000);
+    defer alloc.free(jsonTxt);
+
+    var stdin2file = try std.fs.openFileAbsolute("/dev/tty", .{ .read = true });
+    defer stdin2file.close();
+    var stdin2 = stdin2file.reader();
+
+    const rawMode = try cli.enterRawMode(stdin2file);
+    defer cli.exitRawMode(stdin2file, rawMode) catch {};
 
     cli.enterFullscreen() catch {};
     defer cli.exitFullscreen() catch {};
 
-    while (cli.nextEvent()) |ev| {
-        std.debug.warn("Event: {}\n", .{ev});
+    std.debug.warn("JSON Txt: {}\n", .{jsonTxt});
+
+    while (cli.nextEvent(stdin2file)) |ev| {
         if (ev.is("ctrl+c")) break;
+        std.debug.warn("Event: {}\n", .{ev});
     }
 
     // const tgui = TermGUI.init();

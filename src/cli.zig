@@ -29,15 +29,15 @@ fn tcflags(comptime itms: anytype) std.os.tcflag_t {
     }
 }
 
-pub fn enterRawMode() !std.os.termios {
-    const origTermios = try std.os.tcgetattr(std.os.STDIN_FILENO);
+pub fn enterRawMode(stdin: std.fs.File) !std.os.termios {
+    const origTermios = try std.os.tcgetattr(stdin.handle);
     var termios = origTermios;
     termios.lflag &= ~tcflags(.{ .ECHO, .ICANON, .ISIG, .IXON, .IEXTEN, .BRKINT, .INPCK, .ISTRIP, .CS8 });
-    try std.os.tcsetattr(std.os.STDIN_FILENO, std.os.TCSA.FLUSH, termios);
+    try std.os.tcsetattr(stdin.handle, std.os.TCSA.FLUSH, termios);
     return origTermios;
 }
-pub fn exitRawMode(orig: std.os.termios) !void {
-    try std.os.tcsetattr(std.os.STDIN_FILENO, std.os.TCSA.FLUSH, orig);
+pub fn exitRawMode(stdin: std.fs.File, orig: std.os.termios) !void {
+    try std.os.tcsetattr(stdin.handle, std.os.TCSA.FLUSH, orig);
 }
 
 pub fn startCaptureMouse() !void {
@@ -186,8 +186,8 @@ test "Event.from" {
     std.debug.warn("\n{}\n", .{somev});
 }
 
-pub fn nextEvent() ?Event {
-    const stdin = std.io.getStdIn().reader();
+pub fn nextEvent(stdinf: std.fs.File) ?Event {
+    const stdin = stdinf.reader();
 
     const firstByte = stdin.readByte() catch return null;
     switch (firstByte) {
