@@ -32,12 +32,18 @@ pub fn main() !void {
     try stdout.print("Escape sequence debug started. Window size is: {}\n", .{try cli.winSize(stdoutF)});
 
     if (eventMode) {
-        while (cli.nextEvent(stdinF)) |ev| {
-            try stdout.print(" {}", .{ev});
-            if (ev.is("ctrl+c")) {
-                break;
+        cli.mainLoop(false, struct {
+            pub fn f(data: anytype, ev: cli.Event) bool {
+                const stdoutF2 = std.io.getStdOut();
+                const stdout2 = stdoutF2.writer();
+
+                stdout2.print(" {}", .{ev}) catch return false;
+                if (ev.is("ctrl+c")) {
+                    return false;
+                }
+                return true;
             }
-        }
+        }.f, stdinF);
         return;
     }
     const escape_start = "\x1b[34m\\\x1b[94m";
