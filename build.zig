@@ -21,4 +21,11 @@ pub fn build(b: *Builder) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    const escapeq = b.addExecutable("escape_sequence_debug", "src/escape_sequence_debug.zig");
+    escapeq.setTarget(target);
+    escapeq.setBuildMode(mode);
+    const escapeqinstall = b.addInstallArtifact(escapeq);
+    const escapeStep = b.step("escape", "Escape sequence");
+    escapeStep.dependOn(&escapeqinstall.step);
 }

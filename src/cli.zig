@@ -40,6 +40,19 @@ pub fn exitRawMode(stdin: std.fs.File, orig: std.os.termios) !void {
     try std.os.tcsetattr(stdin.handle, std.os.TCSA.FLUSH, orig);
 }
 
+const TermSize = struct { w: u16, h: u16 };
+pub fn winSize(stdout: std.fs.File) !TermSize {
+    var wsz: std.os.linux.winsize = undefined;
+    while (true) {
+        switch (std.os.linux.ioctl(stdout.handle, std.os.linux.TIOCGWINSZ, @ptrToInt(&wsz))) {
+            0 => break,
+            std.os.EINTR => continue,
+            else => return error.UnknownError,
+        }
+    }
+    return TermSize{ .h = wsz.ws_row, .w = wsz.ws_col };
+}
+
 pub fn startCaptureMouse() !void {
     try print("\x1b[?1003;1015;1015h");
 }
