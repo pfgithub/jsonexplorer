@@ -40,17 +40,26 @@ pub fn exitRawMode(stdin: std.fs.File, orig: std.os.termios) !void {
     try std.os.tcsetattr(stdin.handle, std.os.TCSA.FLUSH, orig);
 }
 
-const TermSize = struct { w: u16, h: u16 };
-pub fn winSize(stdout: std.fs.File) !TermSize {
-    var wsz: std.os.linux.winsize = undefined;
+fn ioctl(fd: std.os.fd_t, request: u32, comptime ResT: type) !ResT {
+    var res: ResT = undefined;
     while (true) {
-        switch (std.os.linux.ioctl(stdout.handle, std.os.linux.TIOCGWINSZ, @ptrToInt(&wsz))) {
+        switch (std.os.errno(std.os.system.ioctl(fd, request, @ptrToInt(&res)))) {
             0 => break,
+            std.os.EBADF => return error.BadFileDescriptor,
+            std.os.EFAULT => unreachable, // Bad pointer param
+            std.os.EINVAL => unreachable, // Bad params
+            std.os.ENOTTY => return error.RequestDoesNotApply,
             std.os.EINTR => continue,
-            else => return error.UnknownError,
+            else => |err| return std.os.unexpectedErrno(err),
         }
     }
-    return TermSize{ .h = wsz.ws_row, .w = wsz.ws_col };
+    return res;
+}
+
+const TermSize = struct { w: u16, h: u16 };
+pub fn winSize(stdout: std.fs.File) !TermSize {
+    var wsz: std.os.linux.winsize = try ioctl(stdout.handle, std.os.linux.TIOCGWINSZ, std.os.linux.winsize);
+    return TermSize{ .w = wsz.ws_row, .h = wsz.ws_col };
 }
 
 pub fn startCaptureMouse() !void {
