@@ -63,10 +63,10 @@ pub fn winSize(stdout: std.fs.File) !TermSize {
 }
 
 pub fn startCaptureMouse() !void {
-    try print("\x1b[?1003;1015;1015h");
+    try print("\x1b[?1003;1015;1006h");
 }
 pub fn stopCaptureMouse() !void {
-    try print("\x1b[?1003;1015;1015l");
+    try print("\x1b[?1003;1015;1006l");
 }
 pub const StringSplitIterator = struct {
     pub const ItItem = []const u8;
@@ -107,6 +107,7 @@ pub const Event = union(enum) {
         left,
         down,
         right,
+        insert,
     };
     const KeyEvent = struct {
         modifiers: struct {
@@ -117,7 +118,12 @@ pub const Event = union(enum) {
     };
     key: KeyEvent,
     resize: void,
-    mouse: struct {},
+    mouse: struct {
+        b: u32,
+        x: u32,
+        y: u32,
+        ud: bool,
+    },
 
     pub fn from(text: []const u8) !Event {
         var resev: KeyEvent = .{ .keycode = .{ .character = 0 } };
@@ -145,7 +151,7 @@ pub const Event = union(enum) {
             std.debug.warn("Unused Section: `{}`\n", .{section});
             return error.UnusedSection;
         }
-        if (resev.keycode.character == 0) return error.NeverSetCode;
+        if (resev.keycode == .character and resev.keycode.character == 0) return error.NeverSetCode;
         return Event{ .key = resev };
     }
     pub fn fromc(comptime text: []const u8) Event {
@@ -180,9 +186,8 @@ pub const Event = union(enum) {
         switch (value) {
             .key => |k| {
                 try writer.writeAll("[");
-                if (k.modifiers.ctrl) try writer.writeAll("+ctrl");
-                if (k.modifiers.shift) try writer.writeAll("+shift");
-                try writer.writeAll("+");
+                if (k.modifiers.ctrl) try writer.writeAll("ctrl+");
+                if (k.modifiers.shift) try writer.writeAll("shift+");
                 switch (k.keycode) {
                     .character => |char| {
                         if (char < 128) try writer.print("{c}", .{@intCast(u8, char)}) else try writer.print("{}", .{char});
@@ -190,6 +195,18 @@ pub const Event = union(enum) {
                     else => |code| try writer.writeAll(std.meta.tagName(code)),
                 }
                 try writer.writeAll("]");
+            },
+            .resize => {
+                try writer.writeAll(":resize:");
+            },
+            .mouse => |m| {
+                // try writer.writeAll("(");
+                // try writer.writeAll(std.meta.tagName(m.b.btn));
+                // if (m.b.ctrl == 1) try writer.writeAll(" ctrl");
+                // if (m.b.meta == 1) try writer.writeAll(" alt");
+                // if (m.b.shift == 1) try writer.writeAll(" shift");
+                // if (m.b.rest != 0) try writer.print(" x{}", .{m.b.rest});
+                try writer.print("({b:0>8}, {}, {}, {})", .{ m.b, m.x, m.y, m.ud });
             },
             else => {
                 try writer.writeAll(":unknown ");
@@ -203,6 +220,19 @@ pub const Event = union(enum) {
 test "Event.from" {
     const somev = try Event.from("ctrl+c");
     std.debug.warn("\n{}\n", .{somev});
+}
+
+const IntRetV = struct { char: u8, val: u32 };
+/// read a u32 from a stream
+/// returns the read u32 and the final read character
+/// undefined behaviours on overflow
+fn readInt(stream: anytype) !IntRetV {
+    var res: u32 = 0;
+    var itm = try stream.readByte();
+    while (itm >= '0' and itm <= '9') : (itm = try stream.readByte()) {
+        res = (res * 10) + (itm - '0');
+    }
+    return IntRetV{ .char = itm, .val = res };
 }
 
 pub fn nextEvent(stdinf: std.fs.File) ?Event {
@@ -220,14 +250,35 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                         '1'...'9' => |num| {
                             if ((stdin.readByte() catch return null) != '~') std.debug.panic("Unknown escape 1-9 something\n", .{});
                             switch (num) {
-                                '3' => return Event{ .key = .{ .keycode = .delete } },
-                                else => std.debug.panic("Unknown <esc>[#~ number {}\n", .{num}),
+                                '2' => return Event.fromc("insert"),
+                                '3' => return Event.fromc("delete"),
+                                else => std.debug.panic("Unknown <esc>[#~ char `{c}`\n", .{num}),
                             }
                         },
-                        'A' => return Event{ .key = .{ .keycode = .up } },
-                        'B' => return Event{ .key = .{ .keycode = .down } },
-                        'D' => return Event{ .key = .{ .keycode = .left } },
-                        'C' => return Event{ .key = .{ .keycode = .right } },
+                        'A' => return Event.fromc("up"),
+                        'B' => return Event.fromc("down"),
+                        'D' => return Event.fromc("left"),
+                        'C' => return Event.fromc("right"),
+                        '<' => {
+                            const b = readInt(stdin) catch return null;
+                            if (b.char != ';') std.debug.panic("Bad char `{c}`\n", .{b.char});
+                            const x = readInt(stdin) catch return null;
+                            if (x.char != ';') std.debug.panic("Bad char `{c}`\n", .{x.char});
+                            const y = readInt(stdin) catch return null;
+                            if (y.char != 'M' and y.char != 'm') std.debug.panic("Bad char `{c}`\n", .{y.char});
+                            return Event{ .mouse = .{ .b = b.val, .x = x.val, .y = y.val, .ud = y.char == 'M' } };
+                        },
+                        // 'M' => {
+                        //     const ButtonInfo = packed struct {
+                        //         btn: packed enum(u2) { left = 0, middle = 1, right = 2, none = 3 },
+                        //         shift: u1, meta: u1, ctrl: u1, rest: u3,
+                        //     };
+                        //     const b = stdin.readByte() catch return null;
+                        //     const buttons = @bitCast(Event.ButtonInfo, b);
+                        //     const x = stdin.readByte() catch return null;
+                        //     const y = stdin.readByte() catch return null;
+                        //     return Event{ .mouse = .{ .b = buttons, .x = x - 33, .y = y - 33 } };
+                        // },
                         else => |chr| std.debug.panic("Unknown [ escape {c}\n", .{chr}),
                     }
                 },

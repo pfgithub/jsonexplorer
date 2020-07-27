@@ -37,7 +37,7 @@ pub fn main() !void {
                 const stdoutF2 = std.io.getStdOut();
                 const stdout2 = stdoutF2.writer();
 
-                stdout2.print(" {}", .{ev}) catch return false;
+                stdout2.print("{}\n", .{ev}) catch return false;
                 if (ev.is("ctrl+c")) {
                     return false;
                 }
