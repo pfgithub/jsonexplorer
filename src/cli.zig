@@ -59,7 +59,7 @@ fn ioctl(fd: std.os.fd_t, request: u32, comptime ResT: type) !ResT {
 const TermSize = struct { w: u16, h: u16 };
 pub fn winSize(stdout: std.fs.File) !TermSize {
     var wsz: std.os.linux.winsize = try ioctl(stdout.handle, std.os.linux.TIOCGWINSZ, std.os.linux.winsize);
-    return TermSize{ .w = wsz.ws_row, .h = wsz.ws_col };
+    return TermSize{ .w = wsz.ws_col, .h = wsz.ws_row };
 }
 
 pub fn startCaptureMouse() !void {
@@ -373,7 +373,7 @@ pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
 // \x1b[30m
 // \x1b[90m
 pub const Color = struct {
-    const ColorCode = enum {
+    const ColorCode = enum(u8) {
         black = '0',
         red = '1',
         green = '2',
@@ -386,8 +386,8 @@ pub const Color = struct {
     code: ColorCode,
     bright: bool,
     pub fn escapeCode(color: Color, mode: enum { bg, fg }) [5]u8 {
-        const typeChar: u8 = '3' + (if (color.bright) 6 else 0) + (switch (mode) {
-            .bg => 1,
+        const typeChar: u8 = @as(u8, '3') + @as(u8, if (color.bright) 6 else 0) + (switch (mode) {
+            .bg => @as(u8, 1),
             .fg => 0,
         });
         return [_]u8{ '\x1b', '[', typeChar, @enumToInt(color.code), 'm' };
@@ -405,11 +405,11 @@ pub const Style = struct {
 
 /// set the text style. if oldStyle is specified, find the closest path to
 ///  it rather than the full style.
-fn setTextStyle(writer: anytype, style: Style, oldStyle: ?Style) !void {
-    if (oldStyle) |ostyl| if (std.meta.eql(styl, ostyl)) return; // nothing to do
+pub fn setTextStyle(writer: anytype, style: Style, oldStyle: ?Style) !void {
+    if (oldStyle) |ostyl| if (std.meta.eql(style, ostyl)) return; // nothing to do
     try writer.writeAll("\x1b(B\x1b[m"); // reset
-    if (style.fg) |fg| try writer.writeAll(fg.escapeCode(.fg));
-    if (style.bg) |bg| try writer.writeAll(bg.escapeCode(.bg));
+    if (style.fg) |fg| try writer.writeAll(&fg.escapeCode(.fg));
+    if (style.bg) |bg| try writer.writeAll(&bg.escapeCode(.bg));
     switch (style.mode) {
         .normal => {},
         .bold => try writer.writeAll("\x1b[1m"),
@@ -418,7 +418,11 @@ fn setTextStyle(writer: anytype, style: Style, oldStyle: ?Style) !void {
 }
 
 pub fn moveCursor(writer: anytype, x: u32, y: u32) !void {
-    try writer.writeAll("\x1b[{};{}f", .{ y, x });
+    try writer.print("\x1b[{};{}f", .{ y + 1, x + 1 });
+}
+
+pub fn clearScreen(writer: anytype) !void {
+    try writer.writeAll("\x1b[2J");
 }
 
 // instead of requiring the user to manage cursor positions
