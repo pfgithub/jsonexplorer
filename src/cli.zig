@@ -224,6 +224,11 @@ fn readInt(stream: anytype) !IntRetV {
     return IntRetV{ .char = itm, .val = res };
 }
 
+// TODO instead of signal handlers, use sigwaitinfo/sigtimedwait
+// and somehow wait for either a character or a signal (eg with select syntax #5263)
+// or syscall magic and wait for something on two streams and write to a stream or something
+// on signal.
+
 pub fn nextEvent(stdinf: std.fs.File) ?Event {
     const stdin = stdinf.reader();
 
@@ -337,7 +342,6 @@ fn setSignalHandler() void {
     };
     std.os.sigaction(std.os.SIGWINCH, &act, null);
 }
-
 /// data: any
 /// cb: fn (data: @TypeOf(data), event: Event) bool
 pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
