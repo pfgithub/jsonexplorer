@@ -294,17 +294,6 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                                 },
                             };
                         },
-                        // 'M' => {
-                        //     const ButtonInfo = packed struct {
-                        //         btn: packed enum(u2) { left = 0, middle = 1, right = 2, none = 3 },
-                        //         shift: u1, meta: u1, ctrl: u1, rest: u3,
-                        //     };
-                        //     const b = stdin.readByte() catch return null;
-                        //     const buttons = @bitCast(Event.ButtonInfo, b);
-                        //     const x = stdin.readByte() catch return null;
-                        //     const y = stdin.readByte() catch return null;
-                        //     return Event{ .mouse = .{ .b = buttons, .x = x - 33, .y = y - 33 } };
-                        // },
                         else => |chr| std.debug.panic("Unknown [ escape {c}\n", .{chr}),
                     }
                 },
