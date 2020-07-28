@@ -366,6 +366,57 @@ pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
     }
 }
 
+// \x1b[30m
+// \x1b[90m
+pub const Color = struct {
+    const ColorCode = enum {
+        black = '0',
+        red = '1',
+        green = '2',
+        yellow = '3',
+        blue = '4',
+        magenta = '5',
+        cyan = '6',
+        white = '7',
+    };
+    code: ColorCode,
+    bright: bool,
+    pub fn escapeCode(color: Color, mode: enum { bg, fg }) [5]u8 {
+        const typeChar: u8 = '3' + (if (color.bright) 6 else 0) + (switch (mode) {
+            .bg => 1,
+            .fg => 0,
+        });
+        return [_]u8{ '\x1b', '[', typeChar, @enumToInt(color.code), 'm' };
+    }
+};
+
+// \x1b[40m
+// \x1b[100m
+
+pub const Style = struct {
+    fg: ?Color = null,
+    bg: ?Color = null,
+    mode: enum { normal, bold, italic } = .normal,
+};
+
+/// set the text style. if oldStyle is specified, find the closest path to
+///  it rather than the full style.
+fn setTextStyle(writer: anytype, style: Style, oldStyle: ?Style) !void {
+    if (oldStyle) |ostyl| if (std.meta.eql(styl, ostyl)) return; // nothing to do
+    try writer.writeAll("\x1b(B\x1b[m"); // reset
+    if (style.fg) |fg| try writer.writeAll(fg.escapeCode(.fg));
+    if (style.bg) |bg| try writer.writeAll(bg.escapeCode(.bg));
+    switch (style.mode) {
+        .normal => {},
+        .bold => try writer.writeAll("\x1b[1m"),
+        .italic => try writer.writeAll("\x1b[3m"),
+    }
+}
+
+pub fn moveCursor(writer: anytype, x: u32, y: u32) !void {
+    try writer.writeAll("\x1b[{};{}f", .{ y, x });
+}
+
 // instead of requiring the user to manage cursor positions
 // why not store the entire screen here
 // and then when it changes, diff it and only update what changed
