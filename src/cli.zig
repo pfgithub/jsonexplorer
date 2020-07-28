@@ -122,14 +122,14 @@ pub const Event = union(enum) {
         x: u32,
         y: u32,
         button: MouseButton,
-        mouseup: bool,
-        mousemove: bool,
+        direction: MouseDirection,
         ctrl: bool,
         alt: bool,
         shift: bool,
     },
 
     const MouseButton = enum { none, left, middle, right, scrollup, scrolldown };
+    const MouseDirection = enum { down, move, up };
 
     pub fn from(text: []const u8) !Event {
         var resev: KeyEvent = .{ .keycode = .{ .character = 0 } };
@@ -207,13 +207,23 @@ pub const Event = union(enum) {
             },
             .mouse => |m| {
                 try writer.writeAll("(");
-                try writer.writeAll(std.meta.tagName(m.button));
-                if (m.mouseup) try writer.writeAll(" mouseup");
-                if (m.mousemove) try writer.writeAll(" mousemove");
-                if (m.ctrl) try writer.writeAll(" ctrl");
-                if (m.alt) try writer.writeAll(" alt");
-                if (m.shift) try writer.writeAll(" shift");
-                try writer.print(" {}, {})", .{ m.x, m.y });
+                if (m.button != .scrolldown and m.button != .scrollup) switch (m.direction) {
+                    .down => try writer.writeAll("↓"),
+                    .move => {},
+                    .up => try writer.writeAll("↑"),
+                };
+                switch (m.button) {
+                    .left => try writer.writeAll("lmb "),
+                    .right => try writer.writeAll("rmb "),
+                    .middle => try writer.writeAll("mmb "),
+                    .scrollup => try writer.writeAll("s↑ "),
+                    .scrolldown => try writer.writeAll("s↓ "),
+                    .none => {},
+                }
+                if (m.ctrl) try writer.writeAll("ctrl ");
+                if (m.alt) try writer.writeAll("alt ");
+                if (m.shift) try writer.writeAll("shift ");
+                try writer.print("{}, {})", .{ m.x, m.y });
             },
             else => {
                 try writer.writeAll(":unknown ");
@@ -286,13 +296,15 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
 
                             const data = @bitCast(MouseButtonData, @intCast(u8, b.val));
 
+                            if (y.char == 'm' and data.move == 1) @panic("mouse is moving and released at the same time");
+
                             return Event{
                                 .mouse = .{
                                     .x = x.val,
                                     .y = y.val,
                                     .button = if (data.scroll == 1) switch (data.button) {
                                         .left => Event.MouseButton.scrollup,
-                                        .right => .scrolldown,
+                                        .middle => .scrolldown,
                                         else => @panic("bad"),
                                     } else switch (data.button) {
                                         .left => Event.MouseButton.left,
@@ -300,8 +312,7 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                                         .right => .right,
                                         .none => .none,
                                     },
-                                    .mouseup = y.char == 'm',
-                                    .mousemove = data.move == 1,
+                                    .direction = if (data.move == 1) Event.MouseDirection.move else if (y.char == 'm') Event.MouseDirection.up else .down,
                                     .ctrl = data.ctrl == 1,
                                     .alt = data.alt == 1,
                                     .shift = data.shift == 1,
