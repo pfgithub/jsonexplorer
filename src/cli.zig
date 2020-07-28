@@ -83,9 +83,9 @@ pub const Event = union(enum) {
     };
     const KeyEvent = struct {
         modifiers: struct {
-            ctrl: bool,
-            shift: bool,
-        } = .{ .ctrl = false, .shift = false },
+            ctrl: bool = false,
+            shift: bool = false,
+        } = .{},
         keycode: Keycode,
     };
     key: KeyEvent,
@@ -229,9 +229,9 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
 
     const firstByte = stdin.readByte() catch return null;
     switch (firstByte) {
-        3 => return Event.fromc("ctrl+c"),
-        4 => return Event.fromc("ctrl+d"),
-        26 => return Event.fromc("ctrl+z"),
+        // ctrl+k, ctrl+m don't work
+        // also ctrl+[ allows you to type bad stuff that panics rn
+        1...9, 11...26 => |ch| return Event{ .key = .{ .modifiers = .{ .ctrl = true }, .keycode = .{ .character = ch - 1 + 'a' } } },
         '\x1b' => {
             switch (stdin.readByte() catch return null) {
                 '[' => {
