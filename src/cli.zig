@@ -237,6 +237,9 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                 '[' => {
                     switch (stdin.readByte() catch return null) {
                         '1'...'9' => |num| {
+                            // if next byte is 1-9, this is a urxvt mouse event
+                            // readInt(stdin, &[_]u8{num, byte})
+                            // and then the rest
                             if ((stdin.readByte() catch return null) != '~') std.debug.panic("Unknown escape 1-9 something\n", .{});
                             switch (num) {
                                 '2' => return Event.fromc("insert"),
