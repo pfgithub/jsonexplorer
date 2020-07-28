@@ -119,11 +119,17 @@ pub const Event = union(enum) {
     key: KeyEvent,
     resize: void,
     mouse: struct {
-        b: u32,
         x: u32,
         y: u32,
-        ud: bool,
+        button: MouseButton,
+        mouseup: bool,
+        mousemove: bool,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
     },
+
+    const MouseButton = enum { none, left, middle, right, scrollup, scrolldown };
 
     pub fn from(text: []const u8) !Event {
         var resev: KeyEvent = .{ .keycode = .{ .character = 0 } };
@@ -200,13 +206,14 @@ pub const Event = union(enum) {
                 try writer.writeAll(":resize:");
             },
             .mouse => |m| {
-                // try writer.writeAll("(");
-                // try writer.writeAll(std.meta.tagName(m.b.btn));
-                // if (m.b.ctrl == 1) try writer.writeAll(" ctrl");
-                // if (m.b.meta == 1) try writer.writeAll(" alt");
-                // if (m.b.shift == 1) try writer.writeAll(" shift");
-                // if (m.b.rest != 0) try writer.print(" x{}", .{m.b.rest});
-                try writer.print("({b:0>8}, {}, {}, {})", .{ m.b, m.x, m.y, m.ud });
+                try writer.writeAll("(");
+                try writer.writeAll(std.meta.tagName(m.button));
+                if (m.mouseup) try writer.writeAll(" mouseup");
+                if (m.mousemove) try writer.writeAll(" mousemove");
+                if (m.ctrl) try writer.writeAll(" ctrl");
+                if (m.alt) try writer.writeAll(" alt");
+                if (m.shift) try writer.writeAll(" shift");
+                try writer.print(" {}, {})", .{ m.x, m.y });
             },
             else => {
                 try writer.writeAll(":unknown ");
@@ -260,13 +267,46 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                         'D' => return Event.fromc("left"),
                         'C' => return Event.fromc("right"),
                         '<' => {
+                            const MouseButtonData = packed struct {
+                                button: packed enum(u2) { left = 0, middle = 1, right = 2, none = 3 },
+                                shift: u1,
+                                alt: u1,
+                                ctrl: u1,
+                                move: u1,
+                                scroll: u1,
+                                unused: u1,
+                            };
+
                             const b = readInt(stdin) catch return null;
                             if (b.char != ';') std.debug.panic("Bad char `{c}`\n", .{b.char});
                             const x = readInt(stdin) catch return null;
                             if (x.char != ';') std.debug.panic("Bad char `{c}`\n", .{x.char});
                             const y = readInt(stdin) catch return null;
                             if (y.char != 'M' and y.char != 'm') std.debug.panic("Bad char `{c}`\n", .{y.char});
-                            return Event{ .mouse = .{ .b = b.val, .x = x.val, .y = y.val, .ud = y.char == 'M' } };
+
+                            const data = @bitCast(MouseButtonData, @intCast(u8, b.val));
+
+                            return Event{
+                                .mouse = .{
+                                    .x = x.val,
+                                    .y = y.val,
+                                    .button = if (data.scroll == 1) switch (data.button) {
+                                        .left => Event.MouseButton.scrollup,
+                                        .right => .scrolldown,
+                                        else => @panic("bad"),
+                                    } else switch (data.button) {
+                                        .left => Event.MouseButton.left,
+                                        .middle => .middle,
+                                        .right => .right,
+                                        .none => .none,
+                                    },
+                                    .mouseup = y.char == 'm',
+                                    .mousemove = data.move == 1,
+                                    .ctrl = data.ctrl == 1,
+                                    .alt = data.alt == 1,
+                                    .shift = data.shift == 1,
+                                },
+                            };
                         },
                         // 'M' => {
                         //     const ButtonInfo = packed struct {
