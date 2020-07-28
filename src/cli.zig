@@ -68,34 +68,6 @@ pub fn startCaptureMouse() !void {
 pub fn stopCaptureMouse() !void {
     try print("\x1b[?1003;1015;1006l");
 }
-pub const StringSplitIterator = struct {
-    pub const ItItem = []const u8;
-    string: []const u8,
-    split: []const u8,
-    /// split a string at at. if at == "", split at every byte (not codepoint).
-    pub fn split(string: []const u8, at: []const u8) StringSplitIterator {
-        return .{ .string = string, .split = at };
-    }
-    pub fn next(me: *StringSplitIterator) ?[]const u8 {
-        var res = me.string;
-        while (!std.mem.startsWith(u8, me.string, me.split)) {
-            if (me.string.len == 0) {
-                if (res.len > 0) return res;
-                return null;
-            }
-            me.string = me.string[1..];
-        }
-        if (me.string.len == 0) {
-            if (res.len > 0) return res;
-            return null;
-        }
-        if (me.split.len == 0) {
-            me.string = me.string[1..]; // split("something", "");
-        }
-        defer me.string = me.string[me.split.len..];
-        return res[0 .. res.len - me.string.len];
-    }
-};
 
 pub const Event = union(enum) {
     const Keycode = union(enum) {
@@ -133,7 +105,7 @@ pub const Event = union(enum) {
 
     pub fn from(text: []const u8) !Event {
         var resev: KeyEvent = .{ .keycode = .{ .character = 0 } };
-        var split = StringSplitIterator.split(text, "+");
+        var split = std.mem.tokenize(text, "+");
         b: while (split.next()) |section| {
             inline for (.{ "ctrl", "shift" }) |modifier| {
                 if (std.mem.eql(u8, section, modifier)) {
