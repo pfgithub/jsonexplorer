@@ -287,7 +287,9 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                                         .right => .right,
                                         .none => .none,
                                     },
-                                    .direction = if (data.move == 1) Event.MouseDirection.move else if (y.char == 'm') Event.MouseDirection.up else .down,
+                                    .direction = if (data.move == 1) Event.MouseDirection.move
+                                    //zig fmt
+                                    else if (y.char == 'm') Event.MouseDirection.up else .down,
                                     .ctrl = data.ctrl == 1,
                                     .alt = data.alt == 1,
                                     .shift = data.shift == 1,
