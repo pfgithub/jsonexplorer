@@ -63,10 +63,10 @@ pub fn winSize(stdout: std.fs.File) !TermSize {
 }
 
 pub fn startCaptureMouse() !void {
-    try print("\x1b[?1003;1015;1006h");
+    try print("\x1b[?1003;1004;1015;1006h");
 }
 pub fn stopCaptureMouse() !void {
-    try print("\x1b[?1003;1015;1006l");
+    try print("\x1b[?1003;1004;1015;1006l");
 }
 
 pub const Event = union(enum) {
@@ -99,6 +99,8 @@ pub const Event = union(enum) {
         alt: bool,
         shift: bool,
     },
+    focus,
+    blur,
 
     const MouseButton = enum { none, left, middle, right, scrollup, scrolldown };
     const MouseDirection = enum { down, move, up };
@@ -256,6 +258,8 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                         'B' => return Event.fromc("down"),
                         'D' => return Event.fromc("left"),
                         'C' => return Event.fromc("right"),
+                        'O' => return Event.blur,
+                        'I' => return Event.focus,
                         '<' => {
                             const MouseButtonData = packed struct {
                                 button: packed enum(u2) { left = 0, middle = 1, right = 2, none = 3 },
@@ -280,8 +284,8 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
 
                             return Event{
                                 .mouse = .{
-                                    .x = x.val,
-                                    .y = y.val,
+                                    .x = x.val - 1,
+                                    .y = y.val - 1,
                                     .button = if (data.scroll == 1) switch (data.button) {
                                         .left => Event.MouseButton.scrollup,
                                         .middle => .scrolldown,
@@ -373,24 +377,41 @@ pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
 // \x1b[30m
 // \x1b[90m
 pub const Color = struct {
-    const ColorCode = enum(u8) {
-        black = '0',
-        red = '1',
-        green = '2',
-        yellow = '3',
-        blue = '4',
-        magenta = '5',
-        cyan = '6',
-        white = '7',
+    const ColorCode = enum(u3) {
+        black = 0,
+        red = 1,
+        green = 2,
+        yellow = 3,
+        blue = 4,
+        magenta = 5,
+        cyan = 6,
+        white = 7,
     };
     code: ColorCode,
     bright: bool,
-    pub fn escapeCode(color: Color, mode: enum { bg, fg }) [5]u8 {
-        const typeChar: u8 = @as(u8, '3') + @as(u8, if (color.bright) 6 else 0) + (switch (mode) {
-            .bg => @as(u8, 1),
-            .fg => 0,
-        });
-        return [_]u8{ '\x1b', '[', typeChar, @enumToInt(color.code), 'm' };
+    pub fn from(comptime code: anytype) Color {
+        const tt = @tagName(code);
+        if (comptime std.mem.startsWith(u8, tt, "br")) return .{ .bright = true, .code = @field(ColorCode, tt[2..]) };
+        return .{ .bright = false, .code = @field(ColorCode, tt) };
+    }
+    /// returned []const u8 is embedded in the binary and freeing is not necessary
+    const BGFGMode = enum { bg, fg };
+    pub fn escapeCode(color: Color, mode: BGFGMode) []const u8 {
+        // ah yes, readable code
+        inline for (@typeInfo(ColorCode).Enum.fields) |colrfld| {
+            inline for (.{ .bg, .fg }) |bgfgmode| {
+                inline for (.{ true, false }) |bright| {
+                    if (@enumToInt(color.code) == colrfld.value and mode == bgfgmode and color.bright == bright) {
+                        comptime const vtxt = switch (@as(BGFGMode, bgfgmode)) {
+                            .bg => if (bright) "10" else "4",
+                            .fg => if (bright) "9" else "3",
+                        };
+                        return "\x1b[" ++ vtxt ++ &[_]u8{colrfld.value + '0'} ++ "m";
+                    }
+                }
+            }
+        }
+        unreachable; // all cases handled
     }
 };
 
@@ -408,8 +429,8 @@ pub const Style = struct {
 pub fn setTextStyle(writer: anytype, style: Style, oldStyle: ?Style) !void {
     if (oldStyle) |ostyl| if (std.meta.eql(style, ostyl)) return; // nothing to do
     try writer.writeAll("\x1b(B\x1b[m"); // reset
-    if (style.fg) |fg| try writer.writeAll(&fg.escapeCode(.fg));
-    if (style.bg) |bg| try writer.writeAll(&bg.escapeCode(.bg));
+    if (style.fg) |fg| try writer.writeAll(fg.escapeCode(.fg));
+    if (style.bg) |bg| try writer.writeAll(bg.escapeCode(.bg));
     switch (style.mode) {
         .normal => {},
         .bold => try writer.writeAll("\x1b[1m"),
@@ -423,6 +444,9 @@ pub fn moveCursor(writer: anytype, x: u32, y: u32) !void {
 
 pub fn clearScreen(writer: anytype) !void {
     try writer.writeAll("\x1b[2J");
+}
+pub fn clearToEol(writer: anytype) !void {
+    try writer.writeAll("\x1b[0K");
 }
 
 // instead of requiring the user to manage cursor positions

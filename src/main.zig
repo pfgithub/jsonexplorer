@@ -41,6 +41,28 @@ fn renderJsonNode(out: anytype, key: []const u8, value: *const std.json.Value, i
         .Null => try out.print(" null\n", .{}),
     }
 }
+const Themes = [_]Theme{
+    Theme.from(.{ .brred, .bryellow, .brgreen, .brcyan, .brblue, .brmagenta }),
+    Theme.from(.{ .brmagenta, .bryellow, .brblue }),
+    Theme.from(.{ .bryellow, .brwhite, .magenta }),
+    Theme.from(.{ .brblue, .brmagenta, .brwhite, .brmagenta }),
+    Theme.from(.{ .brmagenta, .brwhite, .brgreen }),
+};
+const Theme = struct {
+    colors: []const cli.Color,
+    pub fn from(comptime items: anytype) Theme {
+        var res: []const cli.Color = &[_]cli.Color{};
+        for (items) |item| {
+            res = res ++ &[_]cli.Color{cli.Color.from(item)};
+        }
+        return Theme{ .colors = res };
+    }
+};
+
+const Point = struct { x: u32, y: u32 };
+const Selection = struct {
+    hover: ?Point,
+};
 
 const JsonRender = struct {
     const JsonKey = union(enum) { int: usize, str: []const u8 };
@@ -48,16 +70,17 @@ const JsonRender = struct {
 
     childNodes: []ChildNode,
     content: std.json.Value,
+    index: usize,
     open: bool,
 
-    pub fn init(alloc: *std.mem.Allocator, jsonv: std.json.Value) std.mem.Allocator.Error!JsonRender {
+    pub fn init(alloc: *std.mem.Allocator, jsonv: std.json.Value, index: usize) std.mem.Allocator.Error!JsonRender {
         const childNodes = switch (jsonv) {
             .Array => |arr| blk: {
                 var childNodesL = try alloc.alloc(ChildNode, arr.items.len);
                 errdefer alloc.free(childNodesL);
 
                 for (arr.items) |itm, i| {
-                    childNodesL[i] = .{ .key = .{ .int = i }, .value = try JsonRender.init(alloc, itm) };
+                    childNodesL[i] = .{ .key = .{ .int = i }, .value = try JsonRender.init(alloc, itm, i) };
                 }
 
                 break :blk childNodesL;
@@ -68,7 +91,7 @@ const JsonRender = struct {
                 errdefer alloc.free(childNodesL);
 
                 for (items) |itm, i| {
-                    childNodesL[i] = .{ .key = .{ .str = itm.key }, .value = try JsonRender.init(alloc, itm.value) };
+                    childNodesL[i] = .{ .key = .{ .str = itm.key }, .value = try JsonRender.init(alloc, itm.value, i) };
                 }
 
                 break :blk childNodesL;
@@ -77,20 +100,28 @@ const JsonRender = struct {
         };
         errdefer alloc.free(childNodes);
         return JsonRender{
-            .open = false,
+            .open = true,
             .childNodes = childNodes,
             .content = jsonv,
+            .index = index,
         };
     }
     pub fn deinit(jr: *JsonRender, alloc: *std.mem.Allocator) void {
         alloc.free(jr.childNodes);
     }
-    pub fn render(me: JsonRender, out: anytype, key: JsonKey, x: u32, y: u32, h: u32) @TypeOf(out).Error!u32 {
-        // the parent node will render the indent rather than the child indenting itself
+    // todo rename JsonRender and move the render fn out of this so it actually holds data rather than
+    // being a gui component type thing
+    pub fn render(me: JsonRender, out: anytype, key: JsonKey, x: u32, y: u32, h: u32, theme: Theme, themeIndex: usize, selection: Selection) @TypeOf(out).Error!u32 {
         if (y >= h) return 0;
 
+        const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
+        const bgstyl: ?cli.Color = if (hovering) cli.Color.from(.brblack) else null;
+
         try cli.moveCursor(out, x, y);
-        try cli.setTextStyle(out, .{ .fg = .{ .code = .blue, .bright = true } }, null);
+
+        const themeStyle: cli.Style = .{ .fg = theme.colors[themeIndex % theme.colors.len], .bg = bgstyl };
+        try cli.setTextStyle(out, themeStyle, null);
+
         if (me.childNodes.len == 0)
             try out.writeAll("- ")
         else if (me.open)
@@ -98,18 +129,30 @@ const JsonRender = struct {
         else
             try out.writeAll("▸ ");
 
-        try cli.setTextStyle(out, .{}, null);
+        try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
 
         switch (key) {
-            .str => |str| try out.print("\"{}\"", .{str}),
-            .int => |int| try out.print("{}", .{int}),
+            .str => |str| {
+                try cli.setTextStyle(out, .{ .fg = cli.Color.from(.white), .bg = bgstyl }, null);
+                try out.print("\"", .{});
+                try cli.setTextStyle(out, themeStyle, null);
+                try out.print("{}", .{str});
+                try cli.setTextStyle(out, .{ .fg = cli.Color.from(.white), .bg = bgstyl }, null);
+                try out.print("\"", .{});
+                try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
+            },
+            .int => |int| {
+                try cli.setTextStyle(out, themeStyle, null);
+                try out.print("{}", .{int});
+                try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
+            },
         }
 
         try out.writeAll(":");
 
         switch (me.content) {
-            .Array => if (!me.open) try out.writeAll(" [...]"),
-            .Object => if (!me.open) try out.writeAll(" {...}"),
+            .Array => if (!me.open) try out.writeAll(" […]"),
+            .Object => if (!me.open) try out.writeAll(" {…}"),
             .String => |str| try out.print(" \"{}\"", .{str}),
             .Float => |f| try out.print(" {d}", .{f}),
             .Integer => |f| try out.print(" {d}", .{f}),
@@ -117,13 +160,20 @@ const JsonRender = struct {
             .Null => try out.print(" null", .{}),
         }
 
+        try cli.clearToEol(out);
+        try cli.setTextStyle(out, .{}, null);
+
         var cy = y + 1;
         if (me.open) for (me.childNodes) |node| {
             if (cy == h) break;
-            cy += try node.value.render(out, node.key, x + 2, cy, h);
+            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection);
             if (cy > h) unreachable; // rendered out of screen
         };
 
+        const barhov = if (selection.hover) |hov| hov.x == x and hov.y > y and hov.y < cy else false;
+        const fgcolr: cli.Color = if (barhov) cli.Color.from(.brwhite) else cli.Color.from(.brblack);
+
+        try cli.setTextStyle(out, .{ .fg = fgcolr }, null);
         var cyy: u32 = y + 1;
         while (cyy < cy) : (cyy += 1) {
             try cli.moveCursor(out, x, cyy);
@@ -173,27 +223,41 @@ pub fn main() !void {
     cli.enterFullscreen() catch {};
     defer cli.exitFullscreen() catch {};
 
-    // cli.startCaptureMouse() catch {};
-    // defer cli.stopCaptureMouse() catch {};
+    cli.startCaptureMouse() catch {};
+    defer cli.stopCaptureMouse() catch {};
 
     var stdoutf = std.io.getStdOut();
     var stdout_buffered = std.io.bufferedWriter(stdoutf.writer());
     const stdout = stdout_buffered.writer();
 
-    var jr = try JsonRender.init(alloc, jsonRoot.*);
+    var jr = try JsonRender.init(alloc, jsonRoot.*, 0);
     defer jr.deinit(alloc);
 
     jr.open = true;
 
-    const ss = try cli.winSize(stdoutf);
-    _ = try jr.render(stdout, .{ .str = "" }, 0, 0, ss.h);
-    try stdout_buffered.flush();
+    var mousePoint: Point = .{ .x = 0, .y = 0 };
+    var mouseVisible = false;
 
     while (cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
         if (ev.is("ctrl+c")) break;
 
-        // try cli.clearScreen(stdout);
-        // try cli.moveCursor(stdout, 0, 0);
+        try cli.clearScreen(stdout);
+        try cli.moveCursor(stdout, 0, 0);
+
+        switch (ev) {
+            .mouse => |mev| {
+                mousePoint.x = mev.x;
+                mousePoint.y = mev.y;
+            },
+            .blur => mouseVisible = false,
+            .focus => mouseVisible = true,
+            else => {},
+        }
+
+        const ss = try cli.winSize(stdoutf);
+        _ = try jr.render(stdout, .{ .str = "" }, 0, 0, ss.h, Themes[0], 0, Selection{ .hover = if (mouseVisible) mousePoint else null });
+        try stdout_buffered.flush();
+
         // try stdout.print("Event: {}\n", .{ev});
     }
 
