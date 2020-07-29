@@ -115,12 +115,19 @@ const JsonRender = struct {
         if (y >= h) return 0;
 
         const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
-        const bgstyl: ?cli.Color = if (hovering) cli.Color.from(.brblack) else null;
+        const focused = false;
+        const bgstyl: ?cli.Color = if (focused) cli.Color.from(.brblack) else null;
 
         try cli.moveCursor(out, x, y);
 
         const themeStyle: cli.Style = .{ .fg = theme.colors[themeIndex % theme.colors.len], .bg = bgstyl };
-        try cli.setTextStyle(out, themeStyle, null);
+
+        const tsCopy = blk: {
+            var tsCopy = themeStyle;
+            if (hovering) tsCopy.fg = cli.Color.from(.brblue);
+            break :blk tsCopy;
+        };
+        try cli.setTextStyle(out, tsCopy, null);
 
         if (me.childNodes.len == 0)
             try out.writeAll("- ")
