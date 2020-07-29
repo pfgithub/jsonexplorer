@@ -62,6 +62,7 @@ const Theme = struct {
 const Point = struct { x: u32, y: u32 };
 const Selection = struct {
     hover: ?Point,
+    mouseup: bool,
 };
 
 const JsonRender = struct {
@@ -111,23 +112,20 @@ const JsonRender = struct {
     }
     // todo rename JsonRender and move the render fn out of this so it actually holds data rather than
     // being a gui component type thing
-    pub fn render(me: JsonRender, out: anytype, key: JsonKey, x: u32, y: u32, h: u32, theme: Theme, themeIndex: usize, selection: Selection) @TypeOf(out).Error!u32 {
+    pub fn render(me: *JsonRender, out: anytype, key: JsonKey, x: u32, y: u32, h: u32, theme: Theme, themeIndex: usize, selection: Selection) @TypeOf(out).Error!u32 {
         if (y >= h) return 0;
 
         const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
         const focused = false;
-        const bgstyl: ?cli.Color = if (focused) cli.Color.from(.brblack) else null;
+        const bgstyl: ?cli.Color = if (hovering) cli.Color.from(.brblack) else null;
+
+        if (hovering and selection.mouseup) me.open = !me.open;
 
         try cli.moveCursor(out, x, y);
 
         const themeStyle: cli.Style = .{ .fg = theme.colors[themeIndex % theme.colors.len], .bg = bgstyl };
 
-        const tsCopy = blk: {
-            var tsCopy = themeStyle;
-            if (hovering) tsCopy.fg = cli.Color.from(.brblue);
-            break :blk tsCopy;
-        };
-        try cli.setTextStyle(out, tsCopy, null);
+        try cli.setTextStyle(out, themeStyle, null);
 
         if (me.childNodes.len == 0)
             try out.writeAll("- ")
@@ -171,7 +169,7 @@ const JsonRender = struct {
         try cli.setTextStyle(out, .{}, null);
 
         var cy = y + 1;
-        if (me.open) for (me.childNodes) |node| {
+        if (me.open) for (me.childNodes) |*node| {
             if (cy == h) break;
             cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection);
             if (cy > h) unreachable; // rendered out of screen
@@ -251,10 +249,13 @@ pub fn main() !void {
         try cli.clearScreen(stdout);
         try cli.moveCursor(stdout, 0, 0);
 
+        var selxn = Selection{ .hover = if (mouseVisible) mousePoint else null, .mouseup = false };
+
         switch (ev) {
             .mouse => |mev| {
                 mousePoint.x = mev.x;
                 mousePoint.y = mev.y;
+                if (mev.button == .left and mev.direction == .up) selxn.mouseup = true;
             },
             .blur => mouseVisible = false,
             .focus => mouseVisible = true,
@@ -262,7 +263,7 @@ pub fn main() !void {
         }
 
         const ss = try cli.winSize(stdoutf);
-        _ = try jr.render(stdout, .{ .str = "" }, 0, 0, ss.h, Themes[0], 0, Selection{ .hover = if (mouseVisible) mousePoint else null });
+        _ = try jr.render(stdout, .{ .str = "" }, 0, 0, ss.h, Themes[0], 0, selxn);
         try stdout_buffered.flush();
 
         // try stdout.print("Event: {}\n", .{ev});
