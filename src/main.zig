@@ -66,7 +66,7 @@ const Selection = struct {
 };
 
 const JsonRender = struct {
-    const JsonKey = union(enum) { int: usize, str: []const u8 };
+    const JsonKey = union(enum) { int: usize, str: []const u8, root };
     const ChildNode = struct { key: JsonKey, value: JsonRender };
 
     childNodes: []ChildNode,
@@ -101,7 +101,7 @@ const JsonRender = struct {
         };
         errdefer alloc.free(childNodes);
         return JsonRender{
-            .open = true,
+            .open = false,
             .childNodes = childNodes,
             .content = jsonv,
             .index = index,
@@ -128,36 +128,37 @@ const JsonRender = struct {
         try cli.setTextStyle(out, themeStyle, null);
 
         if (me.childNodes.len == 0)
-            try out.writeAll("- ")
+            try out.writeAll("-")
         else if (me.open)
-            try out.writeAll("▾ ")
+            try out.writeAll("▾")
         else
-            try out.writeAll("▸ ");
+            try out.writeAll("▸");
 
         try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
 
         switch (key) {
             .str => |str| {
                 try cli.setTextStyle(out, .{ .fg = cli.Color.from(.white), .bg = bgstyl }, null);
-                try out.print("\"", .{});
+                try out.print(" \"", .{});
                 try cli.setTextStyle(out, themeStyle, null);
                 try out.print("{}", .{str});
                 try cli.setTextStyle(out, .{ .fg = cli.Color.from(.white), .bg = bgstyl }, null);
                 try out.print("\"", .{});
                 try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
+                try out.writeAll(":");
             },
             .int => |int| {
                 try cli.setTextStyle(out, themeStyle, null);
-                try out.print("{}", .{int});
+                try out.print(" {}", .{int});
                 try cli.setTextStyle(out, .{ .bg = bgstyl }, null);
+                try out.writeAll(":");
             },
+            .root => {},
         }
 
-        try out.writeAll(":");
-
         switch (me.content) {
-            .Array => if (!me.open) try out.writeAll(" […]"),
-            .Object => if (!me.open) try out.writeAll(" {…}"),
+            .Array => if (me.childNodes.len == 0) try out.writeAll(" []") else if (!me.open) try out.writeAll(" […]"),
+            .Object => if (me.childNodes.len == 0) try out.writeAll(" {}") else if (!me.open) try out.writeAll(" {…}"),
             .String => |str| try out.print(" \"{}\"", .{str}),
             .Float => |f| try out.print(" {d}", .{f}),
             .Integer => |f| try out.print(" {d}", .{f}),
@@ -263,7 +264,7 @@ pub fn main() !void {
         }
 
         const ss = try cli.winSize(stdoutf);
-        _ = try jr.render(stdout, .{ .str = "" }, 0, 0, ss.h, Themes[0], 0, selxn);
+        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, selxn);
         try stdout_buffered.flush();
 
         // try stdout.print("Event: {}\n", .{ev});
