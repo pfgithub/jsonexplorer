@@ -205,7 +205,7 @@ pub fn main() !void {
 
     std.debug.warn("\r\x1b[KReading File...", .{});
 
-    const jsonTxt = try stdinf.reader().readAllAlloc(alloc, 1000 * 1000);
+    const jsonTxt = try stdinf.reader().readAllAlloc(alloc, 1000 * 1000 * 1000);
     defer alloc.free(jsonTxt);
 
     std.debug.warn("\r\x1b[KParsing JSON...", .{});
