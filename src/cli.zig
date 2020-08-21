@@ -80,6 +80,7 @@ pub const Event = union(enum) {
         down,
         right,
         insert,
+        tab,
     };
     const KeyEvent = struct {
         modifiers: struct {
@@ -99,10 +100,18 @@ pub const Event = union(enum) {
         alt: bool,
         shift: bool,
     },
+    scroll: struct {
+        x: u32,
+        y: u32,
+        pixels: i32,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+    },
     focus,
     blur,
 
-    const MouseButton = enum { none, left, middle, right, scrollup, scrolldown };
+    const MouseButton = enum { none, left, middle, right };
     const MouseDirection = enum { down, move, up };
 
     pub fn from(text: []const u8) !Event {
@@ -181,19 +190,27 @@ pub const Event = union(enum) {
             },
             .mouse => |m| {
                 try writer.writeAll("(");
-                if (m.button != .scrolldown and m.button != .scrollup) switch (m.direction) {
+                switch (m.direction) {
                     .down => try writer.writeAll("↓"),
                     .move => {},
                     .up => try writer.writeAll("↑"),
-                };
+                }
                 switch (m.button) {
                     .left => try writer.writeAll("lmb "),
                     .right => try writer.writeAll("rmb "),
                     .middle => try writer.writeAll("mmb "),
-                    .scrollup => try writer.writeAll("s↑ "),
-                    .scrolldown => try writer.writeAll("s↓ "),
                     .none => {},
                 }
+                if (m.ctrl) try writer.writeAll("ctrl ");
+                if (m.alt) try writer.writeAll("alt ");
+                if (m.shift) try writer.writeAll("shift ");
+                try writer.print("{}, {})", .{ m.x, m.y });
+            },
+            .scroll => |m| {
+                if (m.pixels < 0) try writer.print("↑{} ", .{-m.pixels})
+                // zig-fmt
+                else try writer.print("↓{} ", .{m.pixels});
+                try writer.writeAll("(");
                 if (m.ctrl) try writer.writeAll("ctrl ");
                 if (m.alt) try writer.writeAll("alt ");
                 if (m.shift) try writer.writeAll("shift ");
@@ -231,14 +248,15 @@ fn readInt(stream: anytype) !IntRetV {
 // or syscall magic and wait for something on two streams and write to a stream or something
 // on signal.
 
-pub fn nextEvent(stdinf: std.fs.File) ?Event {
+pub fn nextEvent(stdinf: std.fs.File) !?Event {
     const stdin = stdinf.reader();
 
     const firstByte = stdin.readByte() catch return null;
     switch (firstByte) {
         // ctrl+k, ctrl+m don't work
         // also ctrl+[ allows you to type bad stuff that panics rn
-        1...9, 11...26 => |ch| return Event{ .key = .{ .modifiers = .{ .ctrl = true }, .keycode = .{ .character = ch - 1 + 'a' } } },
+        1...8, 11...26 => |ch| return Event{ .key = .{ .modifiers = .{ .ctrl = true }, .keycode = .{ .character = ch - 1 + 'a' } } },
+        '\t' => return Event{ .key = .{ .keycode = .tab } },
         '\x1b' => {
             switch (stdin.readByte() catch return null) {
                 '[' => {
@@ -272,25 +290,37 @@ pub fn nextEvent(stdinf: std.fs.File) ?Event {
                             };
 
                             const b = readInt(stdin) catch return null;
-                            if (b.char != ';') std.debug.panic("Bad char `{c}`\n", .{b.char});
+                            if (b.char != ';') return error.BadEscapeSequence;
                             const x = readInt(stdin) catch return null;
-                            if (x.char != ';') std.debug.panic("Bad char `{c}`\n", .{x.char});
+                            if (x.char != ';') return error.BadEscapeSequence;
                             const y = readInt(stdin) catch return null;
-                            if (y.char != 'M' and y.char != 'm') std.debug.panic("Bad char `{c}`\n", .{y.char});
+                            if (y.char != 'M' and y.char != 'm') return error.BadEscapeSequence;
 
                             const data = @bitCast(MouseButtonData, @intCast(u8, b.val));
 
                             if (y.char == 'm' and data.move == 1) @panic("mouse is moving and released at the same time");
 
+                            if (data.scroll == 1)
+                                return Event{
+                                    .scroll = .{
+                                        .x = x.val - 1,
+                                        .y = y.val - 1,
+                                        .pixels = switch (data.button) {
+                                            .left => -3,
+                                            .middle => 3,
+                                            else => return error.BadScrollEvent,
+                                        },
+                                        .ctrl = data.ctrl == 1,
+                                        .alt = data.alt == 1,
+                                        .shift = data.shift == 1,
+                                    },
+                                };
+
                             return Event{
                                 .mouse = .{
                                     .x = x.val - 1,
                                     .y = y.val - 1,
-                                    .button = if (data.scroll == 1) switch (data.button) {
-                                        .left => Event.MouseButton.scrollup,
-                                        .middle => .scrolldown,
-                                        else => @panic("bad"),
-                                    } else switch (data.button) {
+                                    .button = switch (data.button) {
                                         .left => Event.MouseButton.left,
                                         .middle => .middle,
                                         .right => .right,
@@ -348,7 +378,7 @@ fn setSignalHandler() void {
 }
 /// data: any
 /// cb: fn (data: @TypeOf(data), event: Event) bool
-pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
+pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) !void {
     const DataType = @TypeOf(data);
     const MLFnData = struct {
         var dataptr: usize = undefined;
@@ -360,7 +390,7 @@ pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) void {
     MLFnData.dataptr = @ptrToInt(&data);
     mainLoopFn = MLFnData.mainLoopFn_;
     setSignalHandler();
-    while (nextEvent(stdinF)) |ev| {
+    while (try nextEvent(stdinF)) |ev| {
         cbRunning = true;
         if (!cb(data, ev)) break;
         cbRunning = false;

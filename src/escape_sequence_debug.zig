@@ -32,7 +32,7 @@ pub fn main() !void {
     try stdout.print("Escape sequence debug started. Window size is: {}\n", .{try cli.winSize(stdoutF)});
 
     if (eventMode) {
-        cli.mainLoop(false, struct {
+        try cli.mainLoop(false, struct {
             pub fn f(data: anytype, ev: cli.Event) bool {
                 const stdoutF2 = std.io.getStdOut();
                 const stdout2 = stdoutF2.writer();

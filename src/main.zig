@@ -212,7 +212,10 @@ pub fn main() !void {
 
     var jsonParser = std.json.Parser.init(alloc, false); // copy_strings = false;
     defer jsonParser.deinit();
-    var jsonRes = try jsonParser.parse(jsonTxt);
+    var jsonRes = jsonParser.parse(jsonTxt) catch |e| {
+        std.debug.warn("\nJSON parsing error: {e}\n", .{e});
+        return;
+    };
     defer jsonRes.deinit();
 
     var jsonRoot = &jsonRes.root;
@@ -244,7 +247,7 @@ pub fn main() !void {
     var mousePoint: Point = .{ .x = 0, .y = 0 };
     var mouseVisible = false;
 
-    while (cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
+    while (try cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
         if (ev.is("ctrl+c")) break;
 
         try cli.clearScreen(stdout);
