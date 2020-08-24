@@ -115,7 +115,7 @@ const Path = struct {
         }
         last_.index += 1;
     }
-    fn devance(path: *Path) void {
+    fn devance(path: *Path, root: *JsonRender) !void {
         var last_ = path.last();
         if (last_.index == 0) {
             if (path.al.items.len <= 1) return; // cannot devance
@@ -123,6 +123,11 @@ const Path = struct {
             return;
         }
         last_.index -= 1;
+        var thisNode = path.getNode(root);
+        if (thisNode.childNodes.len > 0 and thisNode.open) {
+            try path.al.append(.{ .index = thisNode.childNodes.len - 1 });
+            return;
+        }
     }
     fn forDepth(path: Path, depth: usize) ?ALEntry {
         if (depth >= path.al.items.len) return null;
@@ -355,7 +360,7 @@ pub fn main() !void {
                     try startAt.advance(&jr);
                 }
                 while (px < 0) : (px += 1) {
-                    startAt.devance();
+                    try startAt.devance(&jr);
                 }
             },
             else => {},
