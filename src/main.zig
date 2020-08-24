@@ -194,11 +194,11 @@ const JsonRender = struct {
         themeIndex: usize,
         selection: Selection,
         startAt: Path,
-        depth: usize,
+        depth: ?usize,
     ) @TypeOf(out).Error!u32 {
         if (y >= h) return 0;
 
-        const pathv = if (startAt.forDepth(depth)) |v| v.index else 0; // TODO only if the node at depth == me
+        const pathv = if (depth) |d| if (startAt.forDepth(d)) |v| v.index else 0 else 0;
 
         const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
         const focused = false;
@@ -257,7 +257,9 @@ const JsonRender = struct {
         var cy = y + 1;
         if (me.open) for (me.childNodes[pathv..]) |*node, i| {
             if (cy == h) break;
-            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection, startAt, depth + 1);
+            // check if the next item is on the path
+            const onpath = if (depth) |d| i == 0 else false;
+            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection, startAt, if (onpath) depth.? + 1 else null);
             if (cy > h) unreachable; // rendered out of screen
         };
 
