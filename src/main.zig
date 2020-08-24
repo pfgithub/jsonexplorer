@@ -64,6 +64,71 @@ const Selection = struct {
     hover: ?Point,
     mouseup: bool,
 };
+const Path = struct {
+    const ALEntry = struct {
+        index: usize,
+    };
+    al: std.ArrayList(ALEntry),
+    fn init(alloc: *std.mem.Allocator) !Path {
+        var al = std.ArrayList(ALEntry).init(alloc);
+        errdefer al.deinit();
+        try al.append(.{ .index = 0 });
+        return Path{
+            .al = al,
+        };
+    }
+    fn deinit(path: *Path) void {
+        path.al.deinit();
+        path.* = undefined;
+    }
+    fn last(path: Path) *ALEntry {
+        return &path.al.items[path.al.items.len - 1];
+    }
+    fn getNode(path: Path, root: *JsonRender) *JsonRender {
+        var res = root;
+        for (path.al.items) |itm| {
+            res = &res.childNodes[itm.index].value;
+        }
+        return res;
+    }
+    fn getNodeMinusOne(path: Path, root: *JsonRender) *JsonRender {
+        var res = root;
+        for (path.al.items[0 .. path.al.items.len - 1]) |itm| {
+            res = &res.childNodes[itm.index].value;
+        }
+        return res;
+    }
+    fn advance(path: *Path, root: *JsonRender) !void {
+        // get the node
+        var thisNode = path.getNode(root);
+        if (thisNode.childNodes.len > 0 and thisNode.open) {
+            try path.al.append(.{ .index = 0 });
+            return;
+        }
+        var last_ = path.last();
+        var node = path.getNodeMinusOne(root);
+        while (last_.index + 1 >= node.childNodes.len) {
+            if (path.al.items.len <= 1) return; // cannot advance
+            _ = path.al.pop();
+            last_ = path.last();
+            node = path.getNodeMinusOne(root);
+        }
+        last_.index += 1;
+    }
+    fn devance(path: *Path) void {
+        var last_ = path.last();
+        if (last_.index == 0) {
+            if (path.al.items.len <= 1) return; // cannot devance
+            _ = path.al.pop();
+            return;
+        }
+        last_.index -= 1;
+    }
+    fn forDepth(path: Path, depth: usize) ?ALEntry {
+        if (depth >= path.al.items.len) return null;
+        return path.al.items[depth];
+    }
+};
 
 const JsonRender = struct {
     const JsonKey = union(enum) { int: usize, str: []const u8, root };
@@ -73,6 +138,7 @@ const JsonRender = struct {
     content: std.json.Value,
     index: usize,
     open: bool,
+    // parent: *JsonRender,
 
     pub fn init(alloc: *std.mem.Allocator, jsonv: std.json.Value, index: usize) std.mem.Allocator.Error!JsonRender {
         const childNodes = switch (jsonv) {
@@ -112,8 +178,22 @@ const JsonRender = struct {
     }
     // todo rename JsonRender and move the render fn out of this so it actually holds data rather than
     // being a gui component type thing
-    pub fn render(me: *JsonRender, out: anytype, key: JsonKey, x: u32, y: u32, h: u32, theme: Theme, themeIndex: usize, selection: Selection) @TypeOf(out).Error!u32 {
+    pub fn render(
+        me: *JsonRender,
+        out: anytype,
+        key: JsonKey,
+        x: u32,
+        y: u32,
+        h: u32,
+        theme: Theme,
+        themeIndex: usize,
+        selection: Selection,
+        startAt: Path,
+        depth: usize,
+    ) @TypeOf(out).Error!u32 {
         if (y >= h) return 0;
+
+        const pathv = if (startAt.forDepth(depth)) |v| v.index else 0; // TODO only if the node at depth == me
 
         const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
         const focused = false;
@@ -170,9 +250,9 @@ const JsonRender = struct {
         try cli.setTextStyle(out, .{}, null);
 
         var cy = y + 1;
-        if (me.open) for (me.childNodes) |*node| {
+        if (me.open) for (me.childNodes[pathv..]) |*node, i| {
             if (cy == h) break;
-            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection);
+            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection, startAt, depth + 1);
             if (cy > h) unreachable; // rendered out of screen
         };
 
@@ -247,6 +327,9 @@ pub fn main() !void {
     var mousePoint: Point = .{ .x = 0, .y = 0 };
     var mouseVisible = false;
 
+    var startAt = try Path.init(alloc);
+    defer startAt.deinit();
+
     while (try cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
         if (ev.is("ctrl+c")) break;
 
@@ -263,11 +346,23 @@ pub fn main() !void {
             },
             .blur => mouseVisible = false,
             .focus => mouseVisible = true,
+            .scroll => |sev| {
+                mousePoint.x = sev.x;
+                mousePoint.y = sev.y;
+                // var px: i32 = if (sev.pixels == 3) 1 else -1;
+                var px = sev.pixels;
+                while (px > 0) : (px -= 1) {
+                    try startAt.advance(&jr);
+                }
+                while (px < 0) : (px += 1) {
+                    startAt.devance();
+                }
+            },
             else => {},
         }
 
         const ss = try cli.winSize(stdoutf);
-        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, selxn);
+        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, selxn, startAt, 0);
         try stdout_buffered.flush();
 
         // try stdout.print("Event: {}\n", .{ev});
