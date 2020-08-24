@@ -298,6 +298,27 @@ const JsonRender = struct {
     }
 };
 
+var globalOT: ?std.os.termios = null;
+
+pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+    const stdinF = std.io.getStdIn();
+
+    cli.stopCaptureMouse() catch {};
+    cli.exitFullscreen() catch {};
+    if (globalOT) |ot| cli.exitRawMode(stdinF, ot) catch {};
+
+    var out = std.io.getStdOut().writer();
+    cli.setTextStyle(out, .{ .fg = cli.Color.from(.brred) }, null) catch {};
+    out.print("Panic: {}\n", .{msg}) catch {};
+
+    if (stack_trace) |trace|
+        std.debug.dumpStackTrace(trace.*);
+
+    out.print("Consider posting a bug report: https://github.com/pfgithub/jsonexplorer/issues/new\n", .{}) catch {};
+
+    std.os.exit(1);
+}
+
 pub fn main() !void {
     const alloc = std.heap.page_allocator;
 
@@ -333,6 +354,7 @@ pub fn main() !void {
 
     const rawMode = try cli.enterRawMode(stdin2file);
     defer cli.exitRawMode(stdin2file, rawMode) catch {};
+    globalOT = rawMode;
 
     cli.enterFullscreen() catch {};
     defer cli.exitFullscreen() catch {};
@@ -357,8 +379,9 @@ pub fn main() !void {
 
     var rerender = false;
 
-    while (if (rerender) @as(?cli.Event, cli.Event.none) else try cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
+    while (if (rerender) @as(?cli.Event, cli.Event.none) else (cli.nextEvent(stdin2file)) catch @as(?cli.Event, cli.Event.none)) |ev| : (try stdout_buffered.flush()) {
         if (ev.is("ctrl+c")) break;
+        if (ev.is("ctrl+p")) @panic("panic test");
 
         try cli.clearScreen(stdout);
         try cli.moveCursor(stdout, 0, 0);

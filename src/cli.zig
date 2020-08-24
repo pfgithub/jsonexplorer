@@ -266,11 +266,11 @@ pub fn nextEvent(stdinf: std.fs.File) !?Event {
                             // if next byte is 1-9, this is a urxvt mouse event
                             // readInt(stdin, &[_]u8{num, byte})
                             // and then the rest
-                            if ((stdin.readByte() catch return null) != '~') std.debug.panic("Unknown escape 1-9 something\n", .{});
+                            if ((stdin.readByte() catch return null) != '~') return error.UnsupportedEvent;
                             switch (num) {
                                 '2' => return Event.fromc("insert"),
                                 '3' => return Event.fromc("delete"),
-                                else => std.debug.panic("Unknown <esc>[#~ char `{c}`\n", .{num}),
+                                else => return error.UnsupportedEvent,
                             }
                         },
                         'A' => return Event.fromc("up"),
@@ -299,7 +299,7 @@ pub fn nextEvent(stdinf: std.fs.File) !?Event {
 
                             const data = @bitCast(MouseButtonData, @intCast(u8, b.val));
 
-                            if (y.char == 'm' and data.move == 1) @panic("mouse is moving and released at the same time");
+                            if (y.char == 'm' and data.move == 1) return error.BadEscapeSequence; // "mouse is moving and released at the same time"
 
                             if (data.scroll == 1)
                                 return Event{
@@ -336,23 +336,23 @@ pub fn nextEvent(stdinf: std.fs.File) !?Event {
                                 },
                             };
                         },
-                        else => |chr| std.debug.panic("Unknown [ escape {c}\n", .{chr}),
+                        else => |chr| return error.UnsupportedEvent,
                     }
                 },
-                else => |esch| std.debug.panic("Unknown Escape Type {}\n", .{esch}),
+                else => |esch| return error.UnsupportedEvent,
             }
         },
         10 => return Event{ .key = .{ .keycode = .enter } },
         32...126 => return Event{ .key = .{ .keycode = .{ .character = firstByte } } },
         127 => return Event{ .key = .{ .keycode = .backspace } },
         128...255 => {
-            const len = std.unicode.utf8ByteSequenceLength(firstByte) catch std.debug.panic("Invalid unicode start byte: {}\n", .{firstByte});
+            const len = std.unicode.utf8ByteSequenceLength(firstByte) catch return error.BadEscapeSequence;
             var read = [_]u8{ firstByte, undefined, undefined, undefined };
             stdin.readNoEof(read[1..len]) catch return null;
-            const unichar = std.unicode.utf8Decode(read[0..len]) catch |e| std.debug.panic("Unicode decode error: {}\n", .{e});
+            const unichar = std.unicode.utf8Decode(read[0..len]) catch return error.BadEscapeSequence;
             return Event{ .key = .{ .keycode = .{ .character = unichar } } };
         },
-        else => std.debug.panic("Unsupported: {}\n", .{firstByte}),
+        else => return error.UnsupportedEvent,
     }
 }
 
@@ -391,7 +391,7 @@ pub fn mainLoop(data: anytype, comptime cb: anytype, stdinF: std.fs.File) !void 
     MLFnData.dataptr = @ptrToInt(&data);
     mainLoopFn = MLFnData.mainLoopFn_;
     setSignalHandler();
-    while (try nextEvent(stdinF)) |ev| {
+    while (nextEvent(stdinF) catch @as(?Event, Event.none)) |ev| {
         cbRunning = true;
         if (!cb(data, ev)) break;
         cbRunning = false;

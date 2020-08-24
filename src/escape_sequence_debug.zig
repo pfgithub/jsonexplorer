@@ -1,6 +1,24 @@
 const std = @import("std");
 const cli = @import("cli.zig");
 
+var globalOT: ?std.os.termios = null;
+
+pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
+    const stdinF = std.io.getStdIn();
+
+    cli.stopCaptureMouse() catch {};
+    if (globalOT) |ot| cli.exitRawMode(stdinF, ot) catch {};
+
+    std.debug.warn("Panic: {}\n", .{msg});
+
+    if (stack_trace) |trace|
+        std.debug.dumpStackTrace(trace.*);
+
+    std.debug.warn("Consider posting a bug report: https://github.com/pfgithub/jsonexplorer/issues/new\n", .{});
+
+    std.os.exit(1);
+}
+
 pub fn main() !void {
     const stdinF = std.io.getStdIn();
     const stdin = stdinF.reader();
@@ -9,6 +27,7 @@ pub fn main() !void {
 
     const ot = try cli.enterRawMode(stdinF);
     defer cli.exitRawMode(stdinF, ot) catch @panic("failed to exit");
+    globalOT = ot;
 
     var mouseMode = false;
     var eventMode = false;
@@ -41,6 +60,7 @@ pub fn main() !void {
                 if (ev.is("ctrl+c")) {
                     return false;
                 }
+                if (ev.is("ctrl+p")) @panic("panic test");
                 return true;
             }
         }.f, stdinF);
