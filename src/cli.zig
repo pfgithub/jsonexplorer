@@ -110,6 +110,7 @@ pub const Event = union(enum) {
     },
     focus,
     blur,
+    none,
 
     const MouseButton = enum { none, left, middle, right };
     const MouseDirection = enum { down, move, up };

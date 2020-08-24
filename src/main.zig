@@ -63,6 +63,7 @@ const Point = struct { x: u32, y: u32 };
 const Selection = struct {
     hover: ?Point,
     mouseup: bool,
+    rerender: bool,
 };
 const Path = struct {
     const ALEntry = struct {
@@ -84,6 +85,16 @@ const Path = struct {
     fn last(path: Path) *ALEntry {
         return &path.al.items[path.al.items.len - 1];
     }
+    fn fixClosed(path: *Path, root: *JsonRender) void {
+        var res = root;
+        for (path.al.items) |itm, i| {
+            res = &res.childNodes[itm.index].value;
+            if (!res.open) {
+                path.al.items.len = i + 1;
+                return;
+            }
+        }
+    }
     fn getNode(path: Path, root: *JsonRender) *JsonRender {
         var res = root;
         for (path.al.items) |itm| {
@@ -99,6 +110,7 @@ const Path = struct {
         return res;
     }
     fn advance(path: *Path, root: *JsonRender) !void {
+        path.fixClosed(root);
         // get the node
         var thisNode = path.getNode(root);
         if (thisNode.childNodes.len > 0 and thisNode.open) {
@@ -116,6 +128,7 @@ const Path = struct {
         last_.index += 1;
     }
     fn devance(path: *Path, root: *JsonRender) !void {
+        path.fixClosed(root);
         var last_ = path.last();
         if (last_.index == 0) {
             if (path.al.items.len <= 1) return; // cannot devance
@@ -192,7 +205,7 @@ const JsonRender = struct {
         h: u32,
         theme: Theme,
         themeIndex: usize,
-        selection: Selection,
+        selection: *Selection,
         startAt: Path,
         depth: ?usize,
     ) @TypeOf(out).Error!u32 {
@@ -264,6 +277,11 @@ const JsonRender = struct {
         };
 
         const barhov = if (selection.hover) |hov| hov.x == x and hov.y > y and hov.y < cy else false;
+        if (barhov and selection.mouseup) {
+            me.open = !me.open;
+            selection.rerender = true;
+        }
+
         const fgcolr: cli.Color = if (barhov) cli.Color.from(.brwhite) else cli.Color.from(.brblack);
 
         try cli.setTextStyle(out, .{ .fg = fgcolr }, null);
@@ -337,13 +355,16 @@ pub fn main() !void {
     var startAt = try Path.init(alloc);
     defer startAt.deinit();
 
-    while (try cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
+    var rerender = false;
+
+    while (if (rerender) @as(?cli.Event, cli.Event.none) else try cli.nextEvent(stdin2file)) |ev| : (try stdout_buffered.flush()) {
         if (ev.is("ctrl+c")) break;
 
         try cli.clearScreen(stdout);
         try cli.moveCursor(stdout, 0, 0);
 
-        var selxn = Selection{ .hover = if (mouseVisible) mousePoint else null, .mouseup = false };
+        var selxn = Selection{ .hover = if (mouseVisible) mousePoint else null, .mouseup = false, .rerender = false };
+        defer rerender = selxn.rerender;
 
         switch (ev) {
             .mouse => |mev| {
@@ -369,7 +390,7 @@ pub fn main() !void {
         }
 
         const ss = try cli.winSize(stdoutf);
-        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, selxn, startAt, 0);
+        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, &selxn, startAt, 0);
         try stdout_buffered.flush();
 
         // try stdout.print("Event: {}\n", .{ev});
