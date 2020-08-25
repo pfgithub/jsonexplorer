@@ -109,8 +109,7 @@ const Path = struct {
         }
         return res;
     }
-    fn advance(path: *Path, root: *JsonRender) !void {
-        path.fixClosed(root);
+    pub fn advance(path: *Path, root: *JsonRender) !void {
         // get the node
         var thisNode = path.getNode(root);
         if (thisNode.childNodes.len > 0 and thisNode.open) {
@@ -127,8 +126,7 @@ const Path = struct {
         }
         last_.index += 1;
     }
-    fn devance(path: *Path, root: *JsonRender) !void {
-        path.fixClosed(root);
+    pub fn devance(path: *Path, root: *JsonRender) !void {
         var last_ = path.last();
         if (last_.index == 0) {
             if (path.al.items.len <= 1) return; // cannot devance
@@ -196,33 +194,38 @@ const JsonRender = struct {
     }
     // todo rename JsonRender and move the render fn out of this so it actually holds data rather than
     // being a gui component type thing
-    pub fn render(
-        me: *JsonRender,
-        out: anytype,
-        key: JsonKey,
-        x: u32,
-        y: u32,
-        h: u32,
-        theme: Theme,
-        themeIndex: usize,
-        selection: *Selection,
-        startAt: Path,
-        depth: ?usize,
-    ) @TypeOf(out).Error!u32 {
-        if (y >= h) return 0;
+};
+pub fn renderJson(
+    me: *JsonRender,
+    out: anytype,
+    key: JsonRender.JsonKey,
+    x: u32,
+    y: u32,
+    h: u32,
+    theme: Theme,
+    themeIndex: usize,
+    selection: *Selection,
+    startAt: Path,
+    depth: ?usize,
+) @TypeOf(out).Error!u32 {
+    if (y >= h) return 0;
 
-        const pathv = if (depth) |d| if (startAt.forDepth(d)) |v| v.index else 0 else 0;
+    const pathv = if (depth) |d| if (startAt.forDepth(d)) |v| v.index else 0 else 0;
 
-        const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
-        const focused = false;
-        const bgstyl: ?cli.Color = if (hovering) cli.Color.from(.brblack) else null;
+    const hovering = if (selection.hover) |hov| hov.x >= x and hov.y == y else false;
+    const focused = false;
+    const bgstyl: ?cli.Color = if (hovering) cli.Color.from(.brblack) else null;
 
-        if (hovering and selection.mouseup) me.open = !me.open;
+    if (hovering and selection.mouseup) me.open = !me.open;
 
-        try cli.moveCursor(out, x, y);
+    try cli.moveCursor(out, x, y);
 
-        const themeStyle: cli.Style = .{ .fg = theme.colors[themeIndex % theme.colors.len], .bg = bgstyl };
+    const themeStyle: cli.Style = .{ .fg = theme.colors[themeIndex % theme.colors.len], .bg = bgstyl };
 
+    var cy = y;
+
+    // TODO only show the header if startAt < header
+    if (true) {
         try cli.setTextStyle(out, themeStyle, null);
 
         if (me.childNodes.len == 0)
@@ -265,38 +268,40 @@ const JsonRender = struct {
         }
 
         try cli.clearToEol(out);
-        try cli.setTextStyle(out, .{}, null);
 
-        var cy = y + 1;
-        if (me.open) for (me.childNodes[pathv..]) |*node, i| {
-            if (cy == h) break;
-            // check if the next item is on the path
-            const onpath = if (depth) |d| i == 0 else false;
-            cy += try node.value.render(out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection, startAt, if (onpath) depth.? + 1 else null);
-            if (cy > h) unreachable; // rendered out of screen
-        };
-
-        const barhov = if (selection.hover) |hov| hov.x == x and hov.y > y and hov.y < cy else false;
-        if (barhov and selection.mouseup) {
-            me.open = !me.open;
-            selection.rerender = true;
-        }
-
-        const fgcolr: cli.Color = if (barhov) cli.Color.from(.brwhite) else cli.Color.from(.brblack);
-
-        try cli.setTextStyle(out, .{ .fg = fgcolr }, null);
-        var cyy: u32 = y + 1;
-        while (cyy < cy) : (cyy += 1) {
-            try cli.moveCursor(out, x, cyy);
-
-            if (cyy + 1 < cy or cyy + 1 == h) try out.writeAll("│")
-            // zig-fmt
-            else try out.writeAll("╵");
-        }
-
-        return cy - y;
+        cy += 1;
     }
-};
+
+    try cli.setTextStyle(out, .{}, null);
+
+    if (me.open) for (me.childNodes[pathv..]) |*node, i| {
+        if (cy == h) break;
+        // check if the next item is on the path
+        const onpath = if (depth) |d| i == 0 else false;
+        cy += try renderJson(&node.value, out, node.key, x + 2, cy, h, theme, themeIndex + 1, selection, startAt, if (onpath) depth.? + 1 else null);
+        if (cy > h) unreachable; // rendered out of screen
+    };
+
+    const barhov = if (selection.hover) |hov| hov.x == x and hov.y > y and hov.y < cy else false;
+    if (barhov and selection.mouseup) {
+        me.open = !me.open;
+        selection.rerender = true;
+    }
+
+    const fgcolr: cli.Color = if (barhov) cli.Color.from(.brwhite) else cli.Color.from(.brblack);
+
+    try cli.setTextStyle(out, .{ .fg = fgcolr }, null);
+    var cyy: u32 = y + 1;
+    while (cyy < cy) : (cyy += 1) {
+        try cli.moveCursor(out, x, cyy);
+
+        if (cyy + 1 < cy or cyy + 1 == h) try out.writeAll("│")
+        // zig-fmt
+        else try out.writeAll("╵");
+    }
+
+    return cy - y;
+}
 
 var globalOT: ?std.os.termios = null;
 
@@ -389,6 +394,7 @@ pub fn main() !void {
         var selxn = Selection{ .hover = if (mouseVisible) mousePoint else null, .mouseup = false, .rerender = false };
         defer rerender = selxn.rerender;
 
+        startAt.fixClosed(&jr);
         switch (ev) {
             .mouse => |mev| {
                 mousePoint.x = mev.x;
@@ -413,7 +419,7 @@ pub fn main() !void {
         }
 
         const ss = try cli.winSize(stdoutf);
-        _ = try jr.render(stdout, .root, 0, 0, ss.h, Themes[0], 0, &selxn, startAt, 0);
+        _ = try renderJson(&jr, stdout, .root, 0, 0, ss.h, Themes[0], 0, &selxn, startAt, 0);
         try stdout_buffered.flush();
 
         // try stdout.print("Event: {}\n", .{ev});
