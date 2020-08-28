@@ -16,8 +16,8 @@ stdin: std.fs.File.Reader, // = stdin file (/dev/tty or something) .reader()
 
 term_w: usize,
 term_h: usize,
-screen_chars: [][]ScreenChar,
-prev_chars: [][]ScreenChar,
+screen_chars: std.ArrayList(ScreenChar),
+prev_chars: std.ArrayList(ScreenChar),
 
 pub fn render(tgui: Me) void {
     // if prev w is different or prev h is different
