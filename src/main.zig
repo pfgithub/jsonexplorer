@@ -134,10 +134,10 @@ const Path = struct {
             return;
         }
         last_.index -= 1;
-        var thisNode = path.getNode(root);
-        if (thisNode.childNodes.len > 0 and thisNode.open) {
-            try path.al.append(.{ .index = thisNode.childNodes.len - 1 });
-            return;
+        var lastDeepest = path.getNode(root);
+        while (lastDeepest.childNodes.len > 0 and lastDeepest.open) {
+            try path.al.append(.{ .index = lastDeepest.childNodes.len - 1 });
+            if (lastDeepest.childNodes.len > 0) lastDeepest = &lastDeepest.childNodes[lastDeepest.childNodes.len - 1].value;
         }
     }
     fn forDepth(path: Path, depth: usize) ?ALEntry {
