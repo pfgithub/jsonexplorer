@@ -4,6 +4,10 @@
 zig targets | zig build run
 ```
 
+![screenshot](https://media.discordapp.net/attachments/605572611539206171/747581462777299104/Peek_2020-08-24_15-21.gif)
+
+## other stuff
+
 also contains some things for debugging terminal escape codes:
 
 ```
