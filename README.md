@@ -1,3 +1,5 @@
+# Now merged into [zcho](https://github.com/pfgithub/zcho) `z jsonexplorer`
+
 # jsonexplorer
 
 ```bash
